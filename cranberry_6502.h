@@ -148,14 +148,14 @@ enum cran6502_signals
 	cran6502_UNIT_MASK = 0xE0000000,
 	cran6502_UNIT_ALU = 0x80000000,
 	cran6502_UNIT_BUS = 0x40000000,
-	cran6502_UNIT_MEM = 0x10000000,
+	cran6502_UNIT_MEM = 0x20000000,
 
 	// BUS
 	cran6502_UNIT_BUS_MASK = 0x1FFF0000,
 
-	cran6502_BUS_MASK = 0x20000000,
+	cran6502_BUS_MASK = 0x10000000,
 	cran6502_BUS_DB_SB = 0x00000000,
-	cran6502_BUS_ADH_ADL = 0x20000000,
+	cran6502_BUS_ADH_ADL = 0x10000000,
 
 	cran6502_BUS_OP_MASK = 0x1FFF0000,
 
@@ -319,7 +319,7 @@ void cran6502_clock_cycle(void)
 
 		// BUS
 		{
-			if ((UOP & cran6502_UNIT_MASK) == cran6502_UNIT_BUS)
+			if ((UOP & cran6502_UNIT_BUS) != 0)
 			{
 				switch (UOP & cran6502_BUS_MASK)
 				{
