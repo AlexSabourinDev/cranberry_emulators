@@ -34,25 +34,6 @@ void cran6502_clock_cycle(void);
 
 #include <string.h>
 
-// Processor Registers
-static struct
-{
-	uint8_t C : 1;
-	uint8_t Z : 1;
-	uint8_t I : 1;
-	uint8_t D : 1;
-	uint8_t B : 1;
-	uint8_t _ : 1;
-	uint8_t V : 1;
-	uint8_t N : 1;
-} SR;
-
-// GENERAL PURPOSE (ish), IR starts at 0xEA (NOP)
-static uint8_t X, Y, AC, SP, IR = 0xEA, ABL, ABH, AD;
-
-static uint8_t PCL, PCH, PCLS, PCHS;
-
-// Front-end
 enum
 {
 	T0 = 0x01,
@@ -65,16 +46,25 @@ enum
 	T6 = 0x80
 };
 
-uint8_t TI[] = { [T1] = 0, [T1X] = 1,[T2] = 2,[T3] = 3,[T4] = 4,[T5] = 5,[T6] = 6 };
+static struct
+{
+	uint8_t C : 1;
+	uint8_t Z : 1;
+	uint8_t I : 1;
+	uint8_t D : 1;
+	uint8_t B : 1;
+	uint8_t _ : 1;
+	uint8_t V : 1;
+	uint8_t N : 1;
+} SR;
 
+// IR starts at 0xEA (NOP)
+static uint8_t X, Y, AC, SP, IR = 0xEA, ABL, ABH, AD;
+static uint8_t PCL, PCH, PCLS, PCHS;
+static uint8_t TI[] = { [T1] = 0, [T1X] = 1,[T2] = 2,[T3] = 3,[T4] = 4,[T5] = 5,[T6] = 6 };
 static uint8_t PD, T = T0, IRQ;
-
 static uint8_t DOR, DL;
-
-// ALU
 static uint8_t AI, BI;
-
-// Memory
 static uint8_t* MEM;
 
 void cran6502_map(uint16_t address, uint8_t* memory)
@@ -240,7 +230,7 @@ enum cran6502_signals
 
 // Indexed by TI[T]
 // T1 is always a NOP, it's an OP_FETCH cycle
-uint64_t ROM[UINT8_MAX][7] =
+static const uint64_t ROM[UINT8_MAX][7] =
 {
 	[0x69] = { PHASE_02(cran6502_PC_READ), PHASE_01(cran6502_BUS_ADH_PC_AB) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_BUS_SB_AC_AI), PHASE_01(cran6502_ALU_ADD) | PHASE_02(cran6502_BUS_SB_AD_AC) }, // ADC imm
 	[0x85] = { PHASE_02(cran6502_PC_READ), PHASE_01(cran6502_BUS_ADH_PC_AB) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADL_DL_ABL | cran6502_BUS_ADH_ZERO_ABH), PHASE_01(cran6502_BUS_DB_AC_DOR) | PHASE_02(cran6502_UNIT_MEM_WRITE) }, // STA, zpg
@@ -248,7 +238,7 @@ uint64_t ROM[UINT8_MAX][7] =
 	[0xEA] = { 0 }, // NOP
 };
 
-const uint64_t OP_FETCH = PHASE_01(cran6502_BUS_ADH_PC_AB) | PHASE_02(cran6502_PC_READ);
+static const uint64_t OP_FETCH = PHASE_01(cran6502_BUS_ADH_PC_AB) | PHASE_02(cran6502_PC_READ);
 
 void cran6502_backend(uint64_t UOP)
 {
