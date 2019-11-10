@@ -73,8 +73,10 @@ static uint8_t TI[] = { [T1] = 0, [T1X] = 1,[T2] = 2,[T3] = 3,[T4] = 4,[T5] = 5,
 static uint8_t PD, T = T0, IRQ;
 static uint8_t DOR, DL;
 static uint8_t AI, BI;
-static uint8_t SB_ADH; // Transfer register
+static uint8_t SB_ADH, DB_SB; // Transfer registers
 static uint8_t* MEM;
+
+static uint8_t V;
 
 static cran6502_pins_t NO_PINS;
 static cran6502_pins_t* PINS = &NO_PINS;
@@ -160,11 +162,12 @@ enum cran6502_signals
 
 	// DB Load ops
 	cran6502_BUS_DB_LOAD_MASK = 0x00070000,
-	cran6502_BUS_DB_AC  = 0x00010000,
-	cran6502_BUS_DB_DOR = 0x00020000,
-	cran6502_BUS_DB_BI  = 0x00030000,
-	cran6502_BUS_DB_PCL = 0x00040000,
-	cran6502_BUS_DB_PCH = 0x00050000,
+	cran6502_BUS_DB_AC    = 0x00010000,
+	cran6502_BUS_DB_DOR   = 0x00020000,
+	cran6502_BUS_DB_BI    = 0x00030000,
+	cran6502_BUS_DB_PCL   = 0x00040000,
+	cran6502_BUS_DB_PCH   = 0x00050000,
+	cran6502_BUS_DB_DB_SB = 0x00060000,
 
 	// DB Store ops
 	cran6502_BUS_DB_STORE_MASK = 0x00380000,
@@ -188,18 +191,23 @@ enum cran6502_signals
 
 	// SB Store ops
 	cran6502_BUS_SB_STORE_MASK = 0x0E000000,
-	cran6502_BUS_DL_SB = 0x02000000,
-	cran6502_BUS_SP_SB = 0x04000000,
-	cran6502_BUS_AC_SB = 0x06000000,
-	cran6502_BUS_X_SB  = 0x08000000,
-	cran6502_BUS_Y_SB  = 0x0A000000,
-	cran6502_BUS_AD_SB = 0x0C000000,
+	cran6502_BUS_DL_SB    = 0x02000000,
+	cran6502_BUS_SP_SB    = 0x04000000,
+	cran6502_BUS_AC_SB    = 0x06000000,
+	cran6502_BUS_X_SB     = 0x08000000,
+	cran6502_BUS_Y_SB     = 0x0A000000,
+	cran6502_BUS_AD_SB    = 0x0C000000,
+	cran6502_BUS_DB_SB_SB = 0x0E000000,
 
 	// SB ops
 	cran6502_BUS_SB_AC_AI = cran6502_BUS_DB_SB | cran6502_BUS_AC_SB | cran6502_BUS_SB_AI,
 	cran6502_BUS_SB_AD_AC = cran6502_BUS_DB_SB | cran6502_BUS_AD_SB | cran6502_BUS_SB_AC,
 	cran6502_BUS_SB_X_AI = cran6502_BUS_DB_SB | cran6502_BUS_X_SB | cran6502_BUS_SB_AI,
 	cran6502_BUS_SB_AD_ADH = cran6502_BUS_DB_SB | cran6502_BUS_AD_SB | cran6502_BUS_SB_SB_ADH,
+
+	// SB/DB ops
+	cran6502_BUS_DB_SB_DL_X = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_DB_SB | cran6502_BUS_DB_SB_SB | cran6502_BUS_SB_X,
+	cran6502_BUS_DB_SB_DL_Y = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_DB_SB | cran6502_BUS_DB_SB_SB | cran6502_BUS_SB_Y,
 
 	// ADL Load ops
 	cran6502_BUS_ADL_LOAD_MASK = 0x00070000,
@@ -248,7 +256,8 @@ enum cran6502_signals
 	cran6502_AUX_FLAG_MASK      = 0x00007000,
 	cran6502_AUX_FLAG_ZERO_AI   = 0x00001000,
 	cran6502_AUX_FLAG_ONE_AI    = 0x00002000,
-	cran6502_AUX_FLAG_READ_ON_V = 0x00004000, // read on overflow
+	cran6502_AUX_FLAG_V         = 0x00004000,
+	cran6502_AUX_FLAG_ON_V      = 0x00008000, // on overflow
 
 	// PC
 	cran6502_PC_INC = 0x00001000,
@@ -263,20 +272,73 @@ enum cran6502_signals
 // T1 is always a NOP, it's an OP_FETCH cycle
 static const uint64_t ROM[UINT8_MAX][7] =
 {
-	/* ADC imm   */ [0x69] = { PHASE_02(cran6502_PC_READ), PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_BUS_SB_AC_AI), PHASE_01(cran6502_ALU_ADD) | PHASE_02(cran6502_BUS_SB_AD_AC) },
-	/* STA zpg   */ [0x85] = { PHASE_02(cran6502_PC_READ), PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADL_DL_ABL | cran6502_BUS_ADH_ZERO_ABH), PHASE_01(cran6502_BUS_DB_AC_DOR) | PHASE_02(cran6502_UNIT_MEM_WRITE) },
-	/* LDA x,ind */ [0xA1] =
-						{
-							PHASE_02(cran6502_PC_READ),
-							PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_BUS_SB_X_AI),
-							PHASE_01(cran6502_BUS_ADHL_PC_ABHL | cran6502_ALU_ADD) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADH_DL_ABH | cran6502_BUS_ADL_AD_ABL),
-							PHASE_01(cran6502_BUS_DB_DL_BI) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC | cran6502_BUS_SB_AD_ADH | cran6502_AUX_FLAG_ONE_AI | cran6502_ALU_ADD),
-							PHASE_01(cran6502_AUX_FLAG_READ_ON_V | cran6502_BUS_ADH_SB_ABH) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC)
-						},
-	/* LDA zpg   */ [0xA5] = { PHASE_02(cran6502_PC_READ), PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADL_DL_ABL | cran6502_BUS_ADH_ZERO_ABH), PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC) },
-	/* LDA imm   */ [0xA9] = { PHASE_02(cran6502_PC_READ), PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_AC) },
-	/* LDA abs   */ [0xAD] = { PHASE_02(cran6502_PC_READ), PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_AUX_FLAG_ZERO_AI ), PHASE_01(cran6502_BUS_ADHL_PC_ABHL | cran6502_ALU_ADD) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADH_DL_ABH | cran6502_BUS_ADL_AD_ABL), PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC) },
-	/* NOP */ [0xEA] = { 0 },
+	// ADC imm 
+	[0x69] = 
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_BUS_SB_AC_AI),
+		PHASE_01(cran6502_ALU_ADD) | PHASE_02(cran6502_BUS_SB_AD_AC)
+	},
+	// STA x,ind
+	[0x81] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_BUS_SB_X_AI),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL | cran6502_ALU_ADD | cran6502_AUX_FLAG_V) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADH_DL_ABH | cran6502_BUS_ADL_AD_ABL),
+		PHASE_01(cran6502_BUS_DB_DL_BI) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_AC_DOR | cran6502_BUS_SB_AD_ADH | cran6502_AUX_FLAG_ONE_AI | cran6502_ALU_ADD),
+		PHASE_01(cran6502_BUS_ADH_SB_ABH) | PHASE_02(cran6502_UNIT_MEM_WRITE)
+	},
+	// STA zpg
+	[0x85] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADL_DL_ABL | cran6502_BUS_ADH_ZERO_ABH),
+		PHASE_01(cran6502_BUS_DB_AC_DOR) | PHASE_02(cran6502_UNIT_MEM_WRITE)
+	},
+	// LDY imm
+	[0xA0] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_SB_DL_Y)
+	},
+	// LDA x,ind
+	[0xA1] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_BUS_SB_X_AI),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL | cran6502_ALU_ADD | cran6502_AUX_FLAG_V) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADH_DL_ABH | cran6502_BUS_ADL_AD_ABL),
+		PHASE_01(cran6502_BUS_DB_DL_BI) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC | cran6502_BUS_SB_AD_ADH | cran6502_AUX_FLAG_ONE_AI | cran6502_ALU_ADD),
+		PHASE_01(cran6502_AUX_FLAG_ON_V | cran6502_BUS_ADH_SB_ABH) | PHASE_02(cran6502_AUX_FLAG_ON_V | cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC)
+	},
+	// LDX imm
+	[0xA2] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_SB_DL_X)
+	},
+	// LDA zpg
+	[0xA5] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADL_DL_ABL | cran6502_BUS_ADH_ZERO_ABH),
+		PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC)
+	},
+	// LDA imm
+	[0xA9] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_AC)
+	},
+	// LDA abs
+	[0xAD] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_AUX_FLAG_ZERO_AI ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL | cran6502_ALU_ADD) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADH_DL_ABH | cran6502_BUS_ADL_AD_ABL),
+		PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC)
+	},
+	// NOP
+	[0xEA] = { 0 },
 };
 
 static const uint64_t OP_FETCH = PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ);
@@ -299,8 +361,8 @@ void cran6502_backend(uint64_t UOP)
 
 			// TODO: fix
 			// If our result is lower than our previous, we overflow/carried
-			SR.C = ((AD - AI - BI) & 0x80) >> 7;
-			SR.V = ((AD - AI - BI) & 0x80) >> 7;
+
+			V = cran6502_mux8(V, (AD < AI) & (AD < BI), cran6502_eq(UOP & cran6502_AUX_FLAG_V, cran6502_AUX_FLAG_V)) & 0x01; // TODO: fix this, don't use conditional ops.
 		}
 	}
 
@@ -310,6 +372,9 @@ void cran6502_backend(uint64_t UOP)
 		{
 		case cran6502_BUS_DB_SB:
 		{
+			// Bus ordering is important
+			// DB needs to happen before SB due to transfers such as DL->X/Y
+
 			uint8_t DB = 0;
 			// Store to DB
 			DB = cran6502_mux8(DB, DL, cran6502_eq(UOP & cran6502_BUS_DB_STORE_MASK, cran6502_BUS_DL_DB));
@@ -322,6 +387,7 @@ void cran6502_backend(uint64_t UOP)
 			BI = cran6502_mux8(BI, DB, cran6502_eq(UOP & cran6502_BUS_DB_LOAD_MASK, cran6502_BUS_DB_BI));
 			PCL = cran6502_mux8(PCL, DB, cran6502_eq(UOP & cran6502_BUS_DB_LOAD_MASK, cran6502_BUS_DB_PCL));
 			PCH = cran6502_mux8(PCH, DB, cran6502_eq(UOP & cran6502_BUS_DB_LOAD_MASK, cran6502_BUS_DB_PCH));
+			DB_SB = cran6502_mux8(DB_SB, DB, cran6502_eq(UOP & cran6502_BUS_DB_LOAD_MASK, cran6502_BUS_DB_DB_SB));
 
 			uint8_t SB = 0;
 			// Store to SB
@@ -331,6 +397,7 @@ void cran6502_backend(uint64_t UOP)
 			SB = cran6502_mux8(SB, X, cran6502_eq(UOP & cran6502_BUS_SB_STORE_MASK, cran6502_BUS_X_SB));
 			SB = cran6502_mux8(SB, Y, cran6502_eq(UOP & cran6502_BUS_SB_STORE_MASK, cran6502_BUS_Y_SB));
 			SB = cran6502_mux8(SB, AD, cran6502_eq(UOP & cran6502_BUS_SB_STORE_MASK, cran6502_BUS_AD_SB));
+			SB = cran6502_mux8(SB, DB_SB, cran6502_eq(UOP & cran6502_BUS_SB_STORE_MASK, cran6502_BUS_DB_SB_SB));
 
 			// Load from SB
 			X = cran6502_mux8(X, SB, cran6502_eq(UOP & cran6502_BUS_SB_LOAD_MASK, cran6502_BUS_SB_X));
@@ -385,8 +452,12 @@ void cran6502_clock_cycle(void)
 		{
 			UOP = ROM[IR][TI[T_2_DECODE]];
 
-			uint64_t readOnV = cran6502_eq(((UOP >> 32) & cran6502_AUX_FLAG_READ_ON_V) | (UOP & cran6502_AUX_FLAG_READ_ON_V), cran6502_AUX_FLAG_READ_ON_V);
-			UOP = cran6502_mux64(UOP, 0, readOnV ^ cran6502_eq(SR.V, 0x01) & readOnV);
+			// If both phases are masked out, we can start prefetching the next instruction
+			uint64_t onVPhase01 = cran6502_eq((UOP >> 32) & cran6502_AUX_FLAG_ON_V, cran6502_AUX_FLAG_ON_V);
+			UOP = cran6502_mux64(UOP, UOP & 0x00000000FFFFFFFF, onVPhase01 ^ cran6502_eq(V, 0x01) & onVPhase01);
+
+			uint64_t onVPhase02 = cran6502_eq(UOP & cran6502_AUX_FLAG_ON_V, cran6502_AUX_FLAG_ON_V);
+			UOP = cran6502_mux64(UOP, UOP & 0xFFFFFFFF00000000, onVPhase02 ^ cran6502_eq(V, 0x01) & onVPhase02);
 
 			T = cran6502_mux8(T, T1, cran6502_eq(((UOP >> 32) & cran6502_UNIT_MEM_MASK) | (UOP & cran6502_UNIT_MEM_MASK), 0)); // Is this a non-mem op?
 			UOP = cran6502_mux64(UOP, UOP | OP_FETCH, cran6502_eq(((UOP >> 32) & cran6502_UNIT_MEM_MASK) | (UOP & cran6502_UNIT_MEM_MASK), 0));
