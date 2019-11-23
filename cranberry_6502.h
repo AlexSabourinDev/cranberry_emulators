@@ -222,6 +222,7 @@ enum cran6502_signals
 	cran6502_BUS_ADL_LOAD_MASK = 0x00070000,
 	cran6502_BUS_ADL_ABL = 0x00010000, // ABL and BI need to be exclusive bits. They can be used together
 	cran6502_BUS_ADL_BI  = 0x00020000,
+	cran6502_BUS_ADL_PCL = 0x00040000,
 
 	// ADL Store ops
 	cran6502_BUS_ADL_STORE_MASK = 0x00380000,
@@ -234,10 +235,12 @@ enum cran6502_signals
 	cran6502_BUS_ADL_PCL_ABL = cran6502_BUS_ADL_ADH | cran6502_BUS_PCL_ADL | cran6502_BUS_ADL_ABL,
 	cran6502_BUS_ADL_AD_ABL = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_ABL,
 	cran6502_BUS_ADL_AD_BI = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_BI,
+	cran6502_BUS_ADL_AD_PCL = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_PCL,
 
 	// ADH Load ops
 	cran6502_BUS_ADH_LOAD_MASK = 0x01C00000,
 	cran6502_BUS_ADH_ABH = 0x00400000,
+	cran6502_BUS_ADH_PCH = 0x00600000,
 
 	// ADH Store ops
 	cran6502_BUS_ADH_STORE_MASK = 0x0E000000,
@@ -250,6 +253,7 @@ enum cran6502_signals
 	cran6502_BUS_ADH_ZERO_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_ZERO_ADH | cran6502_BUS_ADH_ABH,
 	cran6502_BUS_ADH_PCH_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_PCH_ADH | cran6502_BUS_ADH_ABH,
 	cran6502_BUS_ADH_DL_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_DL_ADH | cran6502_BUS_ADH_ABH,
+	cran6502_BUS_ADH_DL_PCH = cran6502_BUS_ADL_ADH | cran6502_BUS_DL_ADH | cran6502_BUS_ADH_PCH,
 	cran6502_BUS_ADH_SB_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_SB_ADH_ADH | cran6502_BUS_ADH_ABH,
 
 	// ALU
@@ -332,6 +336,13 @@ enum cran6502_signals
 // T1 is always a NOP, it's an OP_FETCH cycle
 static const uint64_t ROM[UINT8_MAX][7] =
 {
+	// JMP abs
+	[0x4C] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_AUX_FLAG_ZERO_AI),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL | cran6502_ALU_ADD) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADH_DL_PCH | cran6502_BUS_ADL_AD_PCL),
+	},
 	// ADC x, ind
 	[0x61] = 
 	{
@@ -625,6 +636,7 @@ void cran6502_backend(uint64_t UOP)
 			// Special case: ADL needs to support 2 receivers for indirect addressing
 			ABL = cran6502_mux8(ABL, ADL, cran6502_eq(UOP & cran6502_BUS_ADL_ABL, cran6502_BUS_ADL_ABL));
 			BI = cran6502_mux8(BI, ADL, cran6502_eq(UOP & cran6502_BUS_ADL_BI, cran6502_BUS_ADL_BI));
+			PCL = cran6502_mux8(PCL, ADL, cran6502_eq(UOP & cran6502_BUS_ADL_LOAD_MASK, cran6502_BUS_ADL_PCL));
 
 			uint8_t ADH = 0;
 			// Store to ADH
@@ -635,6 +647,7 @@ void cran6502_backend(uint64_t UOP)
 
 			// Load from ADH
 			ABH = cran6502_mux8(ABH, ADH, cran6502_eq(UOP & cran6502_BUS_ADH_LOAD_MASK, cran6502_BUS_ADH_ABH));
+			PCH = cran6502_mux8(PCH, ADH, cran6502_eq(UOP & cran6502_BUS_ADH_LOAD_MASK, cran6502_BUS_ADH_PCH));
 		}
 		break;
 		}
