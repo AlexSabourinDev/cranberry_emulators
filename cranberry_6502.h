@@ -74,7 +74,7 @@ typedef union
 static cran6502_status_t SR;
 
 // IR starts at 0xEA (NOP)
-static uint8_t X, Y, AC, SP, IR = 0xEA, ABL, ABH, AD;
+static uint8_t X, Y, AC, SP = 0xFF, IR = 0xEA, ABL, ABH, AD;
 static uint8_t PCL, PCH, PCLS, PCHS;
 static uint8_t TI[] = { [T1] = 0, [T1X] = 1,[T2] = 2,[T3] = 3,[T4] = 4,[T5] = 5,[T6] = 6 };
 static uint8_t PD, T = T0, IRQ;
@@ -213,6 +213,8 @@ enum cran6502_signals
 	cran6502_BUS_SB_Y_AI = cran6502_BUS_DB_SB | cran6502_BUS_Y_SB | cran6502_BUS_SB_AI,
 	cran6502_BUS_SB_AD_ADH = cran6502_BUS_DB_SB | cran6502_BUS_AD_SB | cran6502_BUS_SB_SB_ADH,
 	cran6502_BUS_SB_AD_AI = cran6502_BUS_DB_SB | cran6502_BUS_AD_SB | cran6502_BUS_SB_AI,
+	cran6502_BUS_SB_SP_AI = cran6502_BUS_DB_SB | cran6502_BUS_SP_SB | cran6502_BUS_SB_AI,
+	cran6502_BUS_SB_AD_SP = cran6502_BUS_DB_SB | cran6502_BUS_AD_SB | cran6502_BUS_SB_SP,
 
 	// SB/DB ops
 	cran6502_BUS_DB_SB_DL_X = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_DB_SB | cran6502_BUS_DB_SB_SB | cran6502_BUS_SB_X,
@@ -228,7 +230,8 @@ enum cran6502_signals
 	cran6502_BUS_ADL_STORE_MASK = 0x00380000,
 	cran6502_BUS_DL_ADL  = 0x00080000,
 	cran6502_BUS_PCL_ADL = 0x00100000,
-	cran6502_BUS_AD_ADL  = 0x00200000,
+	cran6502_BUS_AD_ADL  = 0x00180000,
+	cran6502_BUS_SP_ADL  = 0x00200000,
 
 	// ADL ops
 	cran6502_BUS_ADL_DL_ABL = cran6502_BUS_ADL_ADH | cran6502_BUS_DL_ADL | cran6502_BUS_ADL_ABL,
@@ -236,6 +239,7 @@ enum cran6502_signals
 	cran6502_BUS_ADL_AD_ABL = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_ABL,
 	cran6502_BUS_ADL_AD_BI = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_BI,
 	cran6502_BUS_ADL_AD_PCL = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_PCL,
+	cran6502_BUS_ADL_SP_ABL = cran6502_BUS_ADL_ADH | cran6502_BUS_SP_ADL | cran6502_BUS_ADL_ABL,
 
 	// ADH Load ops
 	cran6502_BUS_ADH_LOAD_MASK = 0x01C00000,
@@ -245,19 +249,21 @@ enum cran6502_signals
 	// ADH Store ops
 	cran6502_BUS_ADH_STORE_MASK = 0x0E000000,
 	cran6502_BUS_ZERO_ADH   = 0x02000000,
-	cran6502_BUS_PCH_ADH    = 0x04000000,
-	cran6502_BUS_DL_ADH     = 0x06000000,
-	cran6502_BUS_SB_ADH_ADH = 0x08000000,
+	cran6502_BUS_ONE_ADH    = 0x04000000,
+	cran6502_BUS_PCH_ADH    = 0x06000000,
+	cran6502_BUS_DL_ADH     = 0x08000000,
+	cran6502_BUS_SB_ADH_ADH = 0x0A000000,
 
 	// ADH ops
 	cran6502_BUS_ADH_ZERO_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_ZERO_ADH | cran6502_BUS_ADH_ABH,
+	cran6502_BUS_ADH_ONE_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_ONE_ADH | cran6502_BUS_ADH_ABH,
 	cran6502_BUS_ADH_PCH_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_PCH_ADH | cran6502_BUS_ADH_ABH,
 	cran6502_BUS_ADH_DL_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_DL_ADH | cran6502_BUS_ADH_ABH,
 	cran6502_BUS_ADH_DL_PCH = cran6502_BUS_ADL_ADH | cran6502_BUS_DL_ADH | cran6502_BUS_ADH_PCH,
 	cran6502_BUS_ADH_SB_ABH = cran6502_BUS_ADL_ADH | cran6502_BUS_SB_ADH_ADH | cran6502_BUS_ADH_ABH,
 
 	// ALU
-	cran6502_ALU_OP_MASK = 0x000000FF,
+	cran6502_ALU_OP_MASK = 0x0000000F,
 	cran6502_ALU_OP_ADD  = 0x00000001,
 	cran6502_ALU_OP_AND  = 0x00000002,
 	cran6502_ALU_OP_EOR  = 0x00000003,
@@ -265,22 +271,22 @@ enum cran6502_signals
 	cran6502_ALU_OP_SHR  = 0x00000005,
 
 	// ALU flags
-	cran6502_ALU_FLAG_MASK = 0x00000F00,
-	cran6502_ALU_FLAG_SR_C = 0x00000100,
-	cran6502_ALU_FLAG_SR_V = 0x00000200,
-	cran6502_ALU_FLAG_SR_N = 0x00000400,
-	cran6502_ALU_FLAG_SR_Z = 0x00000800,
+	cran6502_ALU_FLAG_MASK = 0x00000010,
+	cran6502_ALU_FLAG_SR   = 0x00000010,
 
 	// ALU ops
 	cran6502_ALU_ADD = cran6502_UNIT_ALU | cran6502_ALU_OP_ADD,
-	cran6502_ALU_ADD_FLAGS = cran6502_ALU_FLAG_SR_C | cran6502_ALU_FLAG_SR_V | cran6502_ALU_FLAG_SR_N | cran6502_ALU_FLAG_SR_Z,
+	cran6502_ALU_ADD_FLAGS = cran6502_ALU_FLAG_SR,
 
 	// AUX flags
-	cran6502_AUX_FLAG_MASK      = 0x00007000,
-	cran6502_AUX_FLAG_ZERO_AI   = 0x00001000,
-	cran6502_AUX_FLAG_ONE_AI    = 0x00002000,
-	cran6502_AUX_FLAG_C         = 0x00004000,
-	cran6502_AUX_FLAG_ON_C      = 0x00008000, // on overflow
+	cran6502_AUX_FLAG_MASK          = 0x0000FFE0,
+	cran6502_AUX_FLAG_CONST_MASK    = 0x00000070,
+	cran6502_AUX_FLAG_ZERO_AI       = 0x00000010,
+	cran6502_AUX_FLAG_ONE_AI        = 0x00000020,
+	cran6502_AUX_FLAG_NEG_ONE_BI    = 0x00000030,
+	cran6502_AUX_FLAG_ONE_BI        = 0x00000040,
+	cran6502_AUX_FLAG_C             = 0x00000080,
+	cran6502_AUX_FLAG_ON_C          = 0x00000100, // on overflow
 
 	// PC
 	cran6502_PC_INC = 0x00001000,
@@ -336,6 +342,13 @@ enum cran6502_signals
 // T1 is always a NOP, it's an OP_FETCH cycle
 static const uint64_t ROM[UINT8_MAX][7] =
 {
+	// PHA
+	[0x48] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADL_SP_ABL | cran6502_BUS_ADH_ONE_ABH),
+		PHASE_01(cran6502_BUS_DB_AC_DOR | cran6502_BUS_SB_SP_AI | cran6502_AUX_FLAG_NEG_ONE_BI) | PHASE_02(cran6502_UNIT_MEM_WRITE | cran6502_ALU_ADD | cran6502_BUS_SB_AD_SP)
+	},
 	// JMP abs
 	[0x4C] =
 	{
@@ -356,6 +369,13 @@ static const uint64_t ROM[UINT8_MAX][7] =
 		PHASE_02(cran6502_PC_READ),
 		LD_ZPG(cran6502_BUS_DB_DL_BI),
 		PHASE_01(cran6502_BUS_SB_AC_AI) | PHASE_02(cran6502_ALU_ADD | cran6502_ALU_ADD_FLAGS | cran6502_BUS_SB_AD_AC)
+	},
+	// PLA
+	[0x68] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_SB_SP_AI),
+		PHASE_01(cran6502_ALU_ADD | cran6502_AUX_FLAG_ONE_BI | cran6502_BUS_ADL_AD_ABL | cran6502_BUS_ADH_ONE_ABH) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_DB_DL_AC | cran6502_BUS_SB_AD_SP)
 	},
 	// ADC imm 
 	[0x69] = 
@@ -553,8 +573,10 @@ void cran6502_add(uint8_t l, uint8_t r, uint8_t* result, cran6502_status_t* stat
 
 void cran6502_backend(uint64_t UOP)
 {
-	AI = cran6502_mux8(AI, 0, cran6502_eq(UOP & cran6502_AUX_FLAG_ZERO_AI, cran6502_AUX_FLAG_ZERO_AI));
-	AI = cran6502_mux8(AI, 1, cran6502_eq(UOP & cran6502_AUX_FLAG_ONE_AI, cran6502_AUX_FLAG_ONE_AI));
+	AI = cran6502_mux8(AI, 0, cran6502_eq(UOP & cran6502_AUX_FLAG_CONST_MASK, cran6502_AUX_FLAG_ZERO_AI));
+	AI = cran6502_mux8(AI, 1, cran6502_eq(UOP & cran6502_AUX_FLAG_CONST_MASK, cran6502_AUX_FLAG_ONE_AI));
+	BI = cran6502_mux8(BI, 0xFF, cran6502_eq(UOP & cran6502_AUX_FLAG_CONST_MASK, cran6502_AUX_FLAG_NEG_ONE_BI));
+	BI = cran6502_mux8(BI, 1, cran6502_eq(UOP & cran6502_AUX_FLAG_CONST_MASK, cran6502_AUX_FLAG_ONE_BI));
 
 	// ALU
 	{
@@ -572,10 +594,10 @@ void cran6502_backend(uint64_t UOP)
 			AD = cran6502_mux8(AD, AI | BI, cran6502_eq(UOP & cran6502_ALU_OP_MASK, cran6502_ALU_OP_OR));
 			AD = cran6502_mux8(AD, AI >> BI, cran6502_eq(UOP & cran6502_ALU_OP_MASK, cran6502_ALU_OP_SHR));
 
-			SR.C = cran6502_mux8(SR.C, s.C, cran6502_eq(UOP & cran6502_ALU_FLAG_SR_C, cran6502_ALU_FLAG_SR_C));
-			SR.V = cran6502_mux8(SR.V, s.V, cran6502_eq(UOP & cran6502_ALU_FLAG_SR_V, cran6502_ALU_FLAG_SR_V));
-			SR.N = cran6502_mux8(SR.N, s.N, cran6502_eq(UOP & cran6502_ALU_FLAG_SR_N, cran6502_ALU_FLAG_SR_N));
-			SR.Z = cran6502_mux8(SR.Z, s.Z, cran6502_eq(UOP & cran6502_ALU_FLAG_SR_Z, cran6502_ALU_FLAG_SR_Z));
+			SR.C = cran6502_mux8(SR.C, s.C, cran6502_eq(UOP & cran6502_ALU_FLAG_SR, cran6502_ALU_FLAG_SR));
+			SR.V = cran6502_mux8(SR.V, s.V, cran6502_eq(UOP & cran6502_ALU_FLAG_SR, cran6502_ALU_FLAG_SR));
+			SR.N = cran6502_mux8(SR.N, s.N, cran6502_eq(UOP & cran6502_ALU_FLAG_SR, cran6502_ALU_FLAG_SR));
+			SR.Z = cran6502_mux8(SR.Z, s.Z, cran6502_eq(UOP & cran6502_ALU_FLAG_SR, cran6502_ALU_FLAG_SR));
 
 			C = cran6502_mux8(C, s.C, cran6502_eq(UOP & cran6502_AUX_FLAG_C, cran6502_AUX_FLAG_C));
 		}
@@ -621,6 +643,7 @@ void cran6502_backend(uint64_t UOP)
 			SP = cran6502_mux8(SP, SB, cran6502_eq(UOP & cran6502_BUS_SB_LOAD_MASK, cran6502_BUS_SB_SP));
 			AI = cran6502_mux8(AI, SB, cran6502_eq(UOP & cran6502_BUS_SB_LOAD_MASK, cran6502_BUS_SB_AI));
 			SB_ADH = cran6502_mux8(SB_ADH, SB, cran6502_eq(UOP & cran6502_BUS_SB_LOAD_MASK, cran6502_BUS_SB_SB_ADH));
+			SP = cran6502_mux8(SP, SB, cran6502_eq(UOP & cran6502_BUS_SB_LOAD_MASK, cran6502_BUS_SB_SP));
 		}
 		break;
 
@@ -631,6 +654,7 @@ void cran6502_backend(uint64_t UOP)
 			ADL = cran6502_mux8(ADL, DL, cran6502_eq(UOP & cran6502_BUS_ADL_STORE_MASK, cran6502_BUS_DL_ADL));
 			ADL = cran6502_mux8(ADL, PCL, cran6502_eq(UOP & cran6502_BUS_ADL_STORE_MASK, cran6502_BUS_PCL_ADL));
 			ADL = cran6502_mux8(ADL, AD, cran6502_eq(UOP & cran6502_BUS_ADL_STORE_MASK, cran6502_BUS_AD_ADL));
+			ADL = cran6502_mux8(ADL, SP, cran6502_eq(UOP & cran6502_BUS_ADL_STORE_MASK, cran6502_BUS_SP_ADL));
 
 			// Load from ADL
 			// Special case: ADL needs to support 2 receivers for indirect addressing
@@ -641,6 +665,7 @@ void cran6502_backend(uint64_t UOP)
 			uint8_t ADH = 0;
 			// Store to ADH
 			ADH = cran6502_mux8(ADH, 0, cran6502_eq(UOP & cran6502_BUS_ADH_STORE_MASK, cran6502_BUS_ZERO_ADH));
+			ADH = cran6502_mux8(ADH, 1, cran6502_eq(UOP & cran6502_BUS_ADH_STORE_MASK, cran6502_BUS_ONE_ADH));
 			ADH = cran6502_mux8(ADH, PCH, cran6502_eq(UOP & cran6502_BUS_ADH_STORE_MASK, cran6502_BUS_PCH_ADH));
 			ADH = cran6502_mux8(ADH, DL, cran6502_eq(UOP & cran6502_BUS_ADH_STORE_MASK, cran6502_BUS_DL_ADH));
 			ADH = cran6502_mux8(ADH, SB_ADH, cran6502_eq(UOP & cran6502_BUS_ADH_STORE_MASK, cran6502_BUS_SB_ADH_ADH));
