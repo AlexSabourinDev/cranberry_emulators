@@ -29,6 +29,7 @@ typedef struct
 	uint8_t ABH;
 	uint8_t ABL;
 	uint8_t W : 1;
+	uint8_t SYNC : 1;
 } cran6502_pins_t;
 
 void cran6502_map(uint16_t address, uint8_t* memory);
@@ -148,7 +149,6 @@ static uint64_t cran6502_mask(uint64_t l, uint64_t c)
 	return l & c;
 }
 
-// Format: [1: unit, 7: extra]
 enum cran6502_signals
 {
 	cran6502_NOP = 0x00000000,
@@ -178,14 +178,19 @@ enum cran6502_signals
 
 	// DB Store ops
 	cran6502_BUS_DB_STORE_MASK = 0x00380000,
-	cran6502_BUS_DL_DB = 0x00080000,
-	cran6502_BUS_AC_DB = 0x00100000,
-	cran6502_BUS_SR_DB = 0x00180000,
+	cran6502_BUS_DL_DB  = 0x00080000,
+	cran6502_BUS_AC_DB  = 0x00100000,
+	cran6502_BUS_SR_DB  = 0x00180000,
+	cran6502_BUS_PCL_DB = 0x00200000,
+	cran6502_BUS_PCH_DB = 0x00280000,
 
 	// DB ops
-	cran6502_BUS_DB_DL_BI = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_BI,
-	cran6502_BUS_DB_DL_AC = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_AC,
-	cran6502_BUS_DB_AC_DOR = cran6502_BUS_DB_SB | cran6502_BUS_AC_DB | cran6502_BUS_DB_DOR,
+	cran6502_BUS_DB_DL_BI   = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_BI,
+	cran6502_BUS_DB_DL_AC   = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_AC,
+	cran6502_BUS_DB_AC_DOR  = cran6502_BUS_DB_SB | cran6502_BUS_AC_DB | cran6502_BUS_DB_DOR,
+	cran6502_BUS_DB_PCL_DOR = cran6502_BUS_DB_SB | cran6502_BUS_PCL_DB | cran6502_BUS_DB_DOR,
+	cran6502_BUS_DB_PCH_DOR = cran6502_BUS_DB_SB | cran6502_BUS_PCH_DB | cran6502_BUS_DB_DOR,
+	cran6502_BUS_DB_DL_PCL  = cran6502_BUS_DB_SB | cran6502_BUS_DL_DB | cran6502_BUS_DB_PCL,
 
 	// SB Load ops
 	cran6502_BUS_SB_LOAD_MASK = 0x01C00000,
@@ -240,6 +245,7 @@ enum cran6502_signals
 	cran6502_BUS_ADL_AD_BI = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_BI,
 	cran6502_BUS_ADL_AD_PCL = cran6502_BUS_ADL_ADH | cran6502_BUS_AD_ADL | cran6502_BUS_ADL_PCL,
 	cran6502_BUS_ADL_SP_ABL = cran6502_BUS_ADL_ADH | cran6502_BUS_SP_ADL | cran6502_BUS_ADL_ABL,
+	cran6502_BUS_ADL_DL_PCL = cran6502_BUS_ADL_ADH | cran6502_BUS_DL_ADL | cran6502_BUS_ADL_PCL,
 
 	// ADH Load ops
 	cran6502_BUS_ADH_LOAD_MASK = 0x01C00000,
@@ -279,19 +285,21 @@ enum cran6502_signals
 	cran6502_ALU_ADD_FLAGS = cran6502_ALU_FLAG_SR,
 
 	// AUX flags
-	cran6502_AUX_FLAG_MASK          = 0x0000FFE0,
-	cran6502_AUX_FLAG_CONST_MASK    = 0x00000070,
-	cran6502_AUX_FLAG_ZERO_AI       = 0x00000010,
-	cran6502_AUX_FLAG_ONE_AI        = 0x00000020,
-	cran6502_AUX_FLAG_NEG_ONE_BI    = 0x00000030,
-	cran6502_AUX_FLAG_ONE_BI        = 0x00000040,
-	cran6502_AUX_FLAG_C             = 0x00000080,
-	cran6502_AUX_FLAG_ON_C          = 0x00000100, // on overflow
+	cran6502_AUX_FLAG_MASK           = 0x0000FFE0,
+	cran6502_AUX_FLAG_CONST_MASK     = 0x000000E0,
+	cran6502_AUX_FLAG_ZERO_AI        = 0x00000020,
+	cran6502_AUX_FLAG_ONE_AI         = 0x00000040,
+	cran6502_AUX_FLAG_NEG_ONE_BI     = 0x00000060,
+	cran6502_AUX_FLAG_ONE_BI         = 0x00000080,
+	cran6502_AUX_FLAG_C              = 0x00000100,
+	cran6502_AUX_FLAG_ON_C           = 0x00000200, // on overflow
+	cran6502_AUX_FLAG_READ_THROWAWAY = 0x00000400,
 
 	// PC
 	cran6502_PC_INC = 0x00001000,
 	cran6502_BUS_ADHL_PC_ABHL = cran6502_BUS_ADL_PCL_ABL | cran6502_BUS_ADH_PCH_ABH,
-	cran6502_PC_READ = cran6502_PC_INC | cran6502_UNIT_MEM_READ
+	cran6502_PC_READ = cran6502_PC_INC | cran6502_UNIT_MEM_READ,
+	cran6502_THROWAWAY_READ = cran6502_AUX_FLAG_READ_THROWAWAY | cran6502_UNIT_MEM_READ
 };
 
 #define PHASE_01(a) ((uint64_t)(a) << 32)
@@ -342,11 +350,21 @@ enum cran6502_signals
 // T1 is always a NOP, it's an OP_FETCH cycle
 static const uint64_t ROM[UINT8_MAX][7] =
 {
+	// JSR abs
+	[0x20] = 
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_PCH_DOR),
+		PHASE_01(cran6502_BUS_ADL_SP_ABL | cran6502_BUS_ADH_ONE_ABH) | PHASE_02(cran6502_THROWAWAY_READ),
+		PHASE_01(cran6502_BUS_SB_SP_AI | cran6502_AUX_FLAG_NEG_ONE_BI) | PHASE_02(cran6502_UNIT_MEM_WRITE | cran6502_ALU_ADD | cran6502_BUS_SB_AD_AI | cran6502_BUS_DB_PCL_DOR),
+		PHASE_01(cran6502_BUS_ADL_AD_ABL) | PHASE_02(cran6502_UNIT_MEM_WRITE | cran6502_ALU_ADD | cran6502_BUS_ADHL_PC_ABHL),
+		PHASE_01(cran6502_BUS_DB_DL_PCL | cran6502_BUS_SB_AD_SP) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_ADH_DL_PCH),
+	},
 	// PHA
 	[0x48] =
 	{
 		PHASE_02(cran6502_PC_READ),
-		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADL_SP_ABL | cran6502_BUS_ADH_ONE_ABH),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_THROWAWAY_READ | cran6502_BUS_ADL_SP_ABL | cran6502_BUS_ADH_ONE_ABH),
 		PHASE_01(cran6502_BUS_DB_AC_DOR | cran6502_BUS_SB_SP_AI | cran6502_AUX_FLAG_NEG_ONE_BI) | PHASE_02(cran6502_UNIT_MEM_WRITE | cran6502_ALU_ADD | cran6502_BUS_SB_AD_SP)
 	},
 	// JMP abs
@@ -355,6 +373,16 @@ static const uint64_t ROM[UINT8_MAX][7] =
 		PHASE_02(cran6502_PC_READ),
 		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ | cran6502_BUS_DB_DL_BI | cran6502_AUX_FLAG_ZERO_AI),
 		PHASE_01(cran6502_BUS_ADHL_PC_ABHL | cran6502_ALU_ADD) | PHASE_02(cran6502_PC_READ | cran6502_BUS_ADH_DL_PCH | cran6502_BUS_ADL_AD_PCL),
+	},
+	// RTS
+	[0x60] =
+	{
+		PHASE_02(cran6502_PC_READ),
+		PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_THROWAWAY_READ | cran6502_BUS_SB_SP_AI | cran6502_AUX_FLAG_ONE_BI),
+		PHASE_02(cran6502_THROWAWAY_READ | cran6502_ALU_ADD | cran6502_BUS_ADL_AD_ABL | cran6502_BUS_ADH_ONE_ABH),
+		PHASE_01(cran6502_BUS_SB_AD_AI) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_ALU_ADD | cran6502_BUS_ADL_DL_PCL),
+		PHASE_01(cran6502_BUS_ADL_AD_ABL) | PHASE_02(cran6502_UNIT_MEM_READ | cran6502_BUS_ADH_DL_PCH),
+		PHASE_02(cran6502_PC_INC) | PHASE_02(cran6502_THROWAWAY_READ),
 	},
 	// ADC x, ind
 	[0x61] = 
@@ -617,6 +645,8 @@ void cran6502_backend(uint64_t UOP)
 			DB = cran6502_mux8(DB, DL, cran6502_eq(UOP & cran6502_BUS_DB_STORE_MASK, cran6502_BUS_DL_DB));
 			DB = cran6502_mux8(DB, AC, cran6502_eq(UOP & cran6502_BUS_DB_STORE_MASK, cran6502_BUS_AC_DB));
 			DB = cran6502_mux8(DB, *(uint8_t*)&SR, cran6502_eq(UOP & cran6502_BUS_DB_STORE_MASK, cran6502_BUS_SR_DB));
+			DB = cran6502_mux8(DB, PCL, cran6502_eq(UOP & cran6502_BUS_DB_STORE_MASK, cran6502_BUS_PCL_DB));
+			DB = cran6502_mux8(DB, PCH, cran6502_eq(UOP & cran6502_BUS_DB_STORE_MASK, cran6502_BUS_PCH_DB));
 
 			// Load from DB
 			AC = cran6502_mux8(AC, DB, cran6502_eq(UOP & cran6502_BUS_DB_LOAD_MASK, cran6502_BUS_DB_AC));
@@ -710,17 +740,8 @@ void cran6502_clock_cycle(void)
 
 			T = cran6502_mux8(T, T1, cran6502_eq(((UOP >> 32) & cran6502_UNIT_MEM_MASK) | (UOP & cran6502_UNIT_MEM_MASK), 0)); // Is this a non-mem op?
 			UOP = cran6502_mux64(UOP, UOP | OP_FETCH, cran6502_eq(((UOP >> 32) & cran6502_UNIT_MEM_MASK) | (UOP & cran6502_UNIT_MEM_MASK), 0));
-		}
-
-		// PC
-		{
-			PCLS = PCL;
-			PCHS = PCH;
-
-			uint8_t h = PCLS & 0x80;
-			PCLS++;
-			uint8_t c = (h & (PCHS ^ h)) >> 7; // High bit not set anymore? That's our carry bit.
-			PCHS += c;
+		
+			PINS->SYNC = cran6502_eq(T, T1) & 0x01;
 		}
 
 		cran6502_backend(UOP >> 32);
@@ -730,8 +751,9 @@ void cran6502_clock_cycle(void)
 	{
 		// DATA BUS TRISTATE BUFFERS
 		{
-			PD = cran6502_mux8(PD, MEM[(ABH << 8) | ABL], cran6502_eq(UOP & cran6502_UNIT_MEM_READ, cran6502_UNIT_MEM_READ));
-			DL = cran6502_mux8(DL, MEM[(ABH << 8) | ABL], cran6502_eq(UOP & cran6502_UNIT_MEM_READ, cran6502_UNIT_MEM_READ));
+			uint64_t dontThrowawayRead = ~cran6502_eq(UOP & cran6502_AUX_FLAG_READ_THROWAWAY, cran6502_AUX_FLAG_READ_THROWAWAY);
+			PD = cran6502_mux8(PD, MEM[(ABH << 8) | ABL], cran6502_eq(UOP & cran6502_UNIT_MEM_READ, cran6502_UNIT_MEM_READ) & dontThrowawayRead);
+			DL = cran6502_mux8(DL, MEM[(ABH << 8) | ABL], cran6502_eq(UOP & cran6502_UNIT_MEM_READ, cran6502_UNIT_MEM_READ) & dontThrowawayRead);
 
 			MEM[(ABH << 8) | ABL] = cran6502_mux8(MEM[(ABH << 8) | ABL], DOR, cran6502_eq(UOP & cran6502_UNIT_MEM_WRITE, cran6502_UNIT_MEM_WRITE));
 
@@ -755,6 +777,14 @@ void cran6502_clock_cycle(void)
 
 		// PC
 		{
+			PCLS = PCL;
+			PCHS = PCH;
+
+			uint8_t h = PCLS & 0x80;
+			PCLS++;
+			uint8_t c = (h & (PCHS ^ h)) >> 7; // High bit not set anymore? That's our carry bit.
+			PCHS += c;
+
 			PCL = cran6502_mux8(PCL, PCLS, cran6502_eq(UOP & cran6502_PC_INC, cran6502_PC_INC));
 			PCH = cran6502_mux8(PCH, PCHS, cran6502_eq(UOP & cran6502_PC_INC, cran6502_PC_INC));
 		}
