@@ -574,7 +574,7 @@ static const uint64_t ROM[UINT8_MAX][7] =
 
 static const uint64_t OP_FETCH = PHASE_01(cran6502_BUS_ADHL_PC_ABHL) | PHASE_02(cran6502_PC_READ);
 
-void cran6502_add(uint8_t l, uint8_t r, uint8_t* result, cran6502_status_t* status)
+static void cran6502_add(uint8_t l, uint8_t r, uint8_t* result, cran6502_status_t* status)
 {
 	cran6502_status_t s = { 0 };
 
@@ -599,7 +599,7 @@ void cran6502_add(uint8_t l, uint8_t r, uint8_t* result, cran6502_status_t* stat
 	*status = s;
 }
 
-void cran6502_backend(uint64_t UOP)
+static void cran6502_backend(uint64_t UOP)
 {
 	AI = cran6502_mux8(AI, 0, cran6502_eq(UOP & cran6502_AUX_FLAG_CONST_MASK, cran6502_AUX_FLAG_ZERO_AI));
 	AI = cran6502_mux8(AI, 1, cran6502_eq(UOP & cran6502_AUX_FLAG_CONST_MASK, cran6502_AUX_FLAG_ONE_AI));
